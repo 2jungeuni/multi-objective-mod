@@ -1,3 +1,5 @@
+<span style="font-size:80%">
+
 # multi-objective-mod
 Moiblity-on-demand system for multiple vehicles.
 
@@ -33,7 +35,7 @@ If you want to get the optimal cost,
 python3 main.py -v ${number_of_vehicles} -w ${alpha} ${beta} ${gamma} -pudo ${pickup_location_1} ${dropoff_location_1} -pudo ${pickup_location_2} ${dropoff_location_2} -c ${capacity} -p ${penalty} -t ${time_limit}
 ```
 For example,
-```python3
+```python
 python3 main.py -v 3 -w 0 1 0 -pudo 47 52 -pudo 244 642 -pudo 508 1572 -pudo 60 342 -pudo 440 1014 -c 10 -p 0 -t 3600
 ```
 - Delivery calls
@@ -57,3 +59,4 @@ python3 main.py -v 3 -w 0 1 0 -pudo 47 52 -pudo 244 642 -pudo 508 1572 -pudo 60 
 <img src="./img/seq_time_limit.png" width="120" height="250"> <img src="./img/paths_time_limit.png" width="120" height="250">
 </p>
 The left is sequences of locations and the right is detailed paths.
+</span>
