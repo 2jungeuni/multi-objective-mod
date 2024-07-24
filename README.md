@@ -53,6 +53,7 @@ python3 main.py -v 3 -w 0 1 0 -pudo 47 52 -pudo 244 642 -pudo 508 1572 -pudo 60 
 |  0  |          508&rarr;1572          |   2   |    1     |        2113.92        |
 |  1  | 244&rarr;440&rarr;642&rarr;1014 | 1, 4  |    2     |        1874.46        |
 |  2  |   60&rarr;47&rarr;52&rarr;342   | 3, 0  |    2     |        663.35         |
+
 There are no unserviced users.
 <p align="center">
 <img src="./img/seq_time_limit.png" width="120" height="250"> <img src="./img/paths_time_limit.png" width="120" height="250">
@@ -79,6 +80,7 @@ python3 main.py -v 1 -w 0 1 0 -pudo 47 52 -pudo 244 642 -pudo 508 1572 -pudo 60 
 | car |                              route                               |   users    | capacity | travel time (seconds) |
 |:---:|:----------------------------------------------------------------:|:----------:|:--------:|:---------------------:|
 |  0  | 224&rarr;440&rarr;47&rarr;52&rarr;1014&rarr;642&rarr;60&rarr;342 | 0, 1, 3, 4 |    4     |        3527.67        |
+
 Unserviced users are 2, 5.
 
 <p align="center">
@@ -108,6 +110,7 @@ python3 main.py -v 3 -w 0 1 0 -pudo 47 52 -pudo 244 642 -pudo 508 1572 -pudo 60 
 |  0  |          224&rarr;60&rarr;642&rarr;342           |   1,3   |    2     |        2316.05        |
 |  1  | 1014&rarr;47&rarr;52&rarr;508&rarr;440&rarr;1572 | 0, 2, 5 |    3     |        3146.77        |
 |  2  |                  440&rarr;1014                   |    4    |    1     |        1542.97        |
+
 There are no unserviced users.
 
 <p align="center">
