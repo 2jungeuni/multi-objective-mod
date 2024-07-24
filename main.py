@@ -57,25 +57,48 @@ def create_data_model(func, num_veh, pudo, penalty, alpha=1, beta=0, gamma=0):
     data["num_vehicles"] = num_veh
     data["penalty"] = penalty
     data["num_stops"] = len(data["pickups_deliveries"]) * 2
-    data["cost"] = np.zeros((data["num_stops"], data["num_stops"]))
     data["stops"] = list(np.array(data["pickups_deliveries"]).reshape((data["num_stops"],)))
+    data["locations"] = set(data["stops"])
+    data["num_locations"] = len(data["locations"])
+    data["cost"] = np.zeros((data["num_locations"], data["num_locations"]))
     data["indices_stops"] = {}
-    for idx, stop in enumerate(data["stops"]):
-        data["indices_stops"][idx+1] = stop
+    data["indices_locations"] = {}
+    data["locations_indices"] = {}
+    data["pu_do"] = {}
+
+    # indices_stops
+    i = 1
+    for user_id, pd in enumerate(pudo):
+        data["indices_stops"][i] = (user_id, pd[0])
+        i += 1
+        data["indices_stops"][i] = (user_id, pd[1])
+        data["pu_do"][i-1] = i
+        i += 1
+
+    data["stops_indices"] = {v: k for k, v in data["indices_stops"].items()}
+
+    # indices_locations
+    # locations_indices
+    for idx, loc in enumerate(data["locations"]):
+        data["indices_locations"][idx+1] = loc
+        data["locations_indices"][loc] = idx+1
 
     logger.info("Start calculating cost")
-    for i in range(data["num_stops"]):
-        for j in range(data["num_stops"]):
+    for i in range(data["num_locations"]):
+        for j in range(data["num_locations"]):
             planner.init()
-            data["cost"][i][j] = planner.astar(data["indices_stops"][i+1], data["indices_stops"][j+1])
+            data["cost"][i][j] = planner.astar(data["indices_locations"][i+1], data["indices_locations"][j+1])
     logger.info("Complete cost calculation")
 
     # set depot (artificial location)
     depot = 0
     data["num_stops"] = data["num_stops"] + 1
-    data["stops"].append(depot)
-    data["indices_stops"][0] = depot                                            # index -> node id
-    data["stops_indices"] = {v: k for k, v in data["indices_stops"].items()}    # node id -> index
+    data["num_locations"] = data["num_locations"] + 1
+    data["locations"].add(depot)
+    data["indices_locations"][0] = depot
+    data["locations_indices"][depot] = 0
+    data["indices_stops"][0] = (0, 0)
+    data["stops_indices"][(0, 0)] = 0
 
     # arch's cost for a depot
     c_0 = np.zeros((1, data["cost"].shape[0]))
@@ -96,31 +119,35 @@ def optimize(data, working_time=None, capacity=None):
     # re-definite distance matrix
     dist = {}
     dist_c = {}
-    for i, row in enumerate(data["cost"]):
-        for j, elem in enumerate(row):
-            for v in range(data["num_vehicles"]):
+    for i in range(n):
+        for j in range(n):
+            for v in range(num_v):
                 if (i != j):
-                    dist[(i, j, v)] = data["cost"][i][j]
+                    dist[(i, j, v)] = data["cost"][data["locations_indices"][data["indices_stops"][i][1]]][data["locations_indices"][data["indices_stops"][j][1]]]
                     dist_c[(i, j, v)] = 0
 
     # set pickups and dropoffs
-    pickups = [data["stops_indices"][pudo[0]] for pudo in data["pickups_deliveries"]]
-    dropoffs = [data["stops_indices"][pudo[1]] for pudo in data["pickups_deliveries"]]
+    pickups = [data["stops_indices"][(idx, pudo[0])] for idx, pudo in enumerate(data["pickups_deliveries"])]
+    dropoffs = [data["stops_indices"][(idx, pudo[1])] for idx, pudo in enumerate(data["pickups_deliveries"])]
 
     p = {}
     p_c = {}
     for i in range(n):
-        for v in range(data["num_vehicles"]):
+        for v in range(num_v):
             p[(i, v)] = -1
         p_c[i] = penalty
     p_c[0] = 0
 
-    # edge
+    # edges
     e_vars = m.addVars(dist_c.keys(), obj=dist_c, vtype=GRB.BINARY, name="e")
-    # passenger
+    # sequences
+    
+    # passengers
     p_vars = m.addVars(p.keys(), obj=p, vtype=GRB.BINARY, name="p")
     # penalty
     pc_vars = m.addVars(p_c.keys(), obj=p_c, vtype=GRB.BINARY, name="pc")
+    # sequences
+    s_vars = m.addVars(np.arange(1, data["num_stops"] + 1), lb=1, ub=data["num_stops"], vtype=GRB.INTEGER, name="seq")
 
     # Constraint 1: only one vehicle can visit one stop except for the depot.
     cons1 = m.addConstrs(p_vars.sum(i, "*") <= 1 for i in range(n) if i != 0)
@@ -138,15 +165,16 @@ def optimize(data, working_time=None, capacity=None):
     if capacity:
         cons6 = m.addConstrs(gp.quicksum(p_vars[i, v] for i in pickups) <= capacity
                              for v in range(num_v))
+    # Constraint 6: penalty
     cons7 = m.addConstrs(1 - p_vars.sum(i, "*") == pc_vars[i] for i in range(n) if i != 0)
-    # Constraint 6: pickup-dropoff pairs
-    cons8_1 = m.addConstrs(gp.quicksum(e_vars[i, j, k]
-                                       for i in pickups
-                                       for j in range(n) if i != j and j != 0) >= gp.quicksum(e_vars[i, j, k]
-                                                                                   for i in dropoffs
-                                                                                   for j in range(n) if i != j and j != 0)
-                           for k in range(num_v))
-    cons8_2 = m.addConstrs(p_vars[pickups[i], v] <= p_vars[dropoffs[i], v] for i in range(len(pickups)) for v in range(num_v))
+    # Constraint 7: pickup-dropoff pairs
+    cons8_3 = m.addConstrs(p_vars[pickups[i], v] == p_vars[dropoffs[i], v]
+                           for i in range(len(pickups)) for v in range(num_v))
+    # Constraint 8: sequences
+    cons9_1 = m.addConstrs(
+        s_vars[i] <= s_vars[j] + data["num_stops"] * (1 - e_vars[(i, j, k)]) - 1 for i, j, k in e_vars.keys()
+        if i != 0 and j != 0)
+    cons9_3 = m.addConstrs(s_vars[pu] + 1 <= s_vars[do] for pu, do in data["pu_do"].items())
 
     def subtourlim(model, where):
         if where == GRB.Callback.MIPSOL:
@@ -162,14 +190,13 @@ def optimize(data, working_time=None, capacity=None):
                             # add subtour elimination constraint for every pair of cities in tour
                             model.cbLazy(gp.quicksum(model._vars[i, j, v] for i, j in itertools.permutations(tv, 2))
                                          <= len(tv) - 1)
-
     def subtour(edges, exclude_depot=True):
         cycle = [[] for v in range(num_v)]
 
         for v in range(num_v):
             unvisited = list(np.arange(0, n))
 
-            while unvisited:    # true if list is non-empty
+            while unvisited:  # true if list is non-empty
                 this_cycle = []
                 neighbors = unvisited
 
@@ -189,12 +216,9 @@ def optimize(data, working_time=None, capacity=None):
     m._vars = e_vars
     m._dvars = p_vars
     m._ddvars = pc_vars
+    m._svars = s_vars
     m.Params.lazyConstraints = 1
     m.optimize(subtourlim)
-
-    # obj = m.getObjective()
-    # print(obj)
-    # print(obj.getValue())
 
     # status
     logger.info("Solved (%s)", status_dict[m.status])
@@ -203,6 +227,7 @@ def optimize(data, working_time=None, capacity=None):
         sys.exit("There is no solution. Check constraints again.")
 
     e_vals = m.getAttr('x', e_vars)
+    s_vals = m.getAttr('x', s_vars)
 
     # get solutions
     sol = {}
@@ -213,6 +238,7 @@ def optimize(data, working_time=None, capacity=None):
                 sol[k][i] = j
 
     routes = []
+    capacities = []
     passengers = []
     travel_times = []
     for car in range(num_v):
@@ -221,20 +247,23 @@ def optimize(data, working_time=None, capacity=None):
         travel_time = 0
         cap = 0
         path = []
+        users = []
         while True:
             station_ = copy.copy(station)
             station = route[station]
-            travel_time += data["cost"][station_][station]
+            travel_time += data["cost"][data["locations_indices"][data["indices_stops"][station_][1]]][data["locations_indices"][data["indices_stops"][station][1]]]
             if station == 0:
                 break
             if station in pickups:
                 cap += 1
-            path.append(data["indices_stops"][station])
+                users.append(data["indices_stops"][station][0])
+            path.append(data["indices_stops"][station][1])
         routes.append(path)
-        passengers.append(cap)
+        capacities.append(cap)
+        passengers.append(users)
         travel_times.append(round(travel_time, 2))
 
-    return routes, passengers, travel_times
+    return routes, capacities, passengers, travel_times
 
 
 if __name__ == "__main__":
@@ -264,11 +293,10 @@ if __name__ == "__main__":
     data, planner = create_data_model(func=RoutingPlanner, num_veh=num_veh, pudo=args.pudo, penalty=penalty,
                                       alpha=args.weight[0], beta=args.weight[1], gamma=args.weight[2])
 
-    routes, passengers, travel_times = optimize(data, working_time=args.time, capacity=args.capacity)
+    routes, capacities, passengers, travel_times = optimize(data, working_time=args.time, capacity=args.capacity)
 
     print("[Passengers' Calls]")
-    station_user = {pudo[0]: idx for idx, pudo in enumerate(data["pickups_deliveries"])}
-    print_pudo = {"user ID": list(np.arange(len(station_user))),
+    print_pudo = {"user ID": list(np.arange(len(data["pickups_deliveries"]))),
                   "pickup location": list(map(lambda x: x[0], data["pickups_deliveries"])),
                   "dropoff location": list(map(lambda x: x[1], data["pickups_deliveries"]))}
     print(tabulate(print_pudo, headers="keys", tablefmt="fancy_grid", missingval="N/A"))
@@ -279,19 +307,12 @@ if __name__ == "__main__":
     print("* There is a working time limit (%s seconds) for each delivers." % (args.time))
     print("* There is a capacity limit (%s) for vehicles." % (args.capacity))
     print("* A penalty (%s) is given for the number of locations that cannot be visited." % (penalty))
-    print_route = {"car": [], "route": [], "users": [[] for i in range(num_veh)],
-                   "capacity": passengers, "travel time": travel_times}
-    stops = set(data["stops"])
-    stops = stops - {0}
-    for car, route in enumerate(routes):
-        print_route["car"].append(car)
-        print_route["route"].append(route)
-        for stop in route:
-            if stop in station_user.keys():
-                print_route["users"][car].append(station_user[stop])
-            stops = stops - {stop}
+    print_route = {"car": list(np.arange(num_veh)), "route": routes, "users": passengers,
+                   "capacity": capacities, "travel time": travel_times}
+    total_users = set(print_pudo["user ID"])
+    for i in range(num_veh):
+        total_users = total_users - set(passengers[i])
     print(tabulate(print_route, headers="keys", tablefmt="fancy_grid", missingval="N/A"))
-    print("unvisited users: ", [station_user[stop] for stop in stops if stop in station_user.keys()])
+    print("unserviced users: ", list(total_users))
 
-    # visualization
-    visualization(planner, print_route["route"], num_veh)
+    visualization(planner, routes, num_veh)
