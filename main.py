@@ -314,5 +314,3 @@ if __name__ == "__main__":
         total_users = total_users - set(passengers[i])
     print(tabulate(print_route, headers="keys", tablefmt="fancy_grid", missingval="N/A"))
     print("unserviced users: ", list(total_users))
-
-    visualization(planner, routes, num_veh)
